@@ -20,7 +20,7 @@ set -euo pipefail
 # ---------- Configuration ----------
 
 # LLVM 14 toolchain
-LLVM14="/home/memsafe/Desktop/MSV-14/llvm-project-14.0.0.src/build/bin"
+LLVM14="/path/to/llvm-project-14.0.0.src/build/bin"
 
 # Optional config file.
 # Leave empty if .config is already prepared.

@@ -2,11 +2,6 @@ set -e
 
 ROOT_DIR=$(pwd)
 
-#sudo apt update
-#sudo apt install git build-essential python3 ninja-build wget cmake libtinfo-dev libtinfo6
-#sudo apt install flex bison libssl-dev libelf-dev bc dwarves
-#sudo apt install gcc-11 g++-11
-
 # Build SVF using Pre-built LLVM 14 Binaries
 echo "Building SVF ..."
 cd Unified-Memory-Safety-Validation/program-dependence-graph/SVF
