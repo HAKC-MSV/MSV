@@ -1,10 +1,13 @@
 # MSV: Memory Safety Validation
 
 
-MSV is an LLVM-based static analysis framework for validating memory safety properties in Linux kernel code.
+MSV is an LLVM-based **M**emory **S**afety **V**alidation framework, combining [DataGuard](https://www.ndss-symposium.org/ndss-paper/auto-draft-212/) (NDSS 2022) and [Uriah](https://dl.acm.org/doi/pdf/10.1145/3658644.3690310) (CCS 2024).
 
+This repository upgrades the original LLVM 10-based MSV to LLVM 14.0.0, together with the corresponding updates required for SVF, PDG, and the MSV analysis pipeline. The goal is to make the analyses pipeline compatible with HAKC for future development.
 
-The analysis stack uses **LLVM 14.0.0** and integrates:
+The original LLVM 10 version is available at: [Unified Memory Safety Validation](https://github.com/Lightninghkm/Unified-Memory-Safety-Validation).
+
+The analysis integrates:
 
 
 - [SVF](https://github.com/SVF-tools/SVF) for pointer and value-flow analysis;
