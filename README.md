@@ -662,6 +662,67 @@ Linux Kernel Source + .config
 Memory Safety Analysis Results
 ```
 
+---
+
+## YAML Analysis Output
+
+MSV can export the final unsafe analysis results to a single YAML file for use by subsequent LLVM passes or other analysis tools. The YAML output is generated after MSV completes its analyses and records the source-level information associated with each value that remains unsafe.
+
+By default, MSV writes the results to:
+
+```text
+msv-analysis.yaml
+```
+
+A different output path can be specified with:
+
+```bash
+-yaml-output=/path/to/output.yaml
+```
+
+For example:
+
+```bash
+/path/to/MSV/llvm-project-14.0.0.src/build/bin/opt -enable-new-pm=0 -load /path/to/MSV/Unified-Memory-Safety-Validation/build/libUnifiedMemSafe.so -unified -yaml-output=msv-analysis.yaml -disable-output -time-passes < /path/to/target.bc
+```
+
+Each unsafe location may contain the following fields:
+
+```text
+file
+function
+line
+column
+variable
+```
+
+These fields are recovered from LLVM IR and debug metadata when available. Because debug information may be incomplete or unavailable, every field is allowed to be `null`. Variable-name recovery is best-effort and may also be unavailable even when file and line information are present.
+
+An example output is:
+
+```yaml
+unsafe_locations:
+  - file: "drivers/foo/bar.c"
+    function: "foo_write"
+    line: 127
+    column: 9
+    variable: "buf"
+
+  - file: "drivers/foo/bar.c"
+    function: "foo_read"
+    line: 203
+    column: null
+    variable: null
+```
+
+If no unsafe locations remain after the analysis, MSV writes:
+
+```yaml
+unsafe_locations: []
+```
+
+The YAML export is reporting-only: it does not change the existing MSV classification or analysis logic. It provides a machine-readable interface for passing unsafe-location information to later LLVM passes.
+
 
 ---
 
