@@ -1100,6 +1100,7 @@ namespace
 
 		bool runOnModule(Module &M) override{
 			srand(time(NULL));
+			clearUnsafeLocations();
 
 			using namespace std::chrono;
   			auto start_time = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -1258,6 +1259,12 @@ namespace
 				for (auto inst : toBeRemoved) {
 				    inst->eraseFromParent();
 				}
+			}
+
+			if (writeUnsafeLocationsYaml(YAMLAnalysisOutput)) {
+				errs() << "Unsafe analysis results written to " << YAMLAnalysisOutput << "\n";
+			} else {
+				errs() << "Failed to write unsafe analysis results to " << YAMLAnalysisOutput << "\n";
 			}
 
   			auto end_time = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();

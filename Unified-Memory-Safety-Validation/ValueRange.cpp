@@ -1229,6 +1229,7 @@ void valueRangeAnalysis(Module *M, std::map<const UnifiedMemSafe::VariableMapKey
     errs() << "++++++++++++++++\n";
     for (auto heapUnsafeSeqPointer : heapUnsafeSeqPointerSet) {
         safeSeqPointerSet.erase(heapUnsafeSeqPointer.first);
+        UnifiedMemSafe::recordUnsafeLocation(heapUnsafeSeqPointer.first);
         
         Instruction *gep = dyn_cast<Instruction>(heapUnsafeSeqPointer.first);
         unsafeBB.insert(gep->getParent());

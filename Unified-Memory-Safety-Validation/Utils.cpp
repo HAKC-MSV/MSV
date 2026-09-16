@@ -16,6 +16,18 @@
  
 #include "Utils.hpp"
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/IntrinsicInst.h"
+
+#include <algorithm>
+#include <fstream>
+#include <optional>
+#include <set>
+#include <tuple>
+#include <vector>
+
 cl::opt<std::string> EntryFunction(
     "entry", 
     llvm::cl::desc("Entry Function"),
@@ -76,12 +88,205 @@ cl::opt<bool> DebugTaint(
     llvm::cl::init(false)
 );
 
+cl::opt<std::string> YAMLAnalysisOutput(
+    "yaml-output",
+    llvm::cl::desc("Output file for unsafe source locations in YAML format"),
+    llvm::cl::init("msv-analysis.yaml")
+);
+
 std::string MAGIC_ASM_BEGIN = "addq 123456, %rax";
 std::string MAGIC_ASM_END = "addq 654321, %rax";
 std::string NORMAL_MAGIC_ASM_BEGIN = "addq 1234567, %rax";
 std::string NORMAL_MAGIC_ASM_END = "addq 7654321, %rax";
 
 namespace UnifiedMemSafe { 
+
+namespace {
+
+struct UnsafeLocationRecord {
+    std::optional<std::string> file;
+    std::optional<std::string> function;
+    std::optional<unsigned> line;
+    std::optional<unsigned> column;
+    std::optional<std::string> variable;
+};
+
+std::set<const llvm::Value *> UnsafeLocationValues;
+
+std::string quoteYamlString(const std::string &value) {
+    std::string result;
+    result.reserve(value.size() + 2);
+    result.push_back('"');
+
+    for (char c : value) {
+        switch (c) {
+            case '\\': result += "\\\\"; break;
+            case '"':  result += "\\\""; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:   result.push_back(c); break;
+        }
+    }
+
+    result.push_back('"');
+    return result;
+}
+
+std::optional<std::string> findSourceVariableName(
+    const llvm::Value *V,
+    std::set<const llvm::Value *> &visited,
+    unsigned depth)
+{
+    if (!V || depth > 12 || !visited.insert(V).second)
+        return std::nullopt;
+
+    llvm::SmallVector<llvm::DbgVariableIntrinsic *, 4> dbgUsers;
+    llvm::findDbgUsers(dbgUsers, const_cast<llvm::Value *>(V));
+    for (llvm::DbgVariableIntrinsic *dbgUser : dbgUsers) {
+        if (!dbgUser || !dbgUser->getVariable())
+            continue;
+
+        llvm::StringRef name = dbgUser->getVariable()->getName();
+        if (!name.empty())
+            return name.str();
+    }
+
+    if (const auto *GEP = llvm::dyn_cast<llvm::GetElementPtrInst>(V)) {
+        return findSourceVariableName(GEP->getPointerOperand(), visited, depth + 1);
+    }
+
+    if (const auto *CI = llvm::dyn_cast<llvm::CastInst>(V)) {
+        return findSourceVariableName(CI->getOperand(0), visited, depth + 1);
+    }
+
+    if (const auto *LI = llvm::dyn_cast<llvm::LoadInst>(V)) {
+        return findSourceVariableName(LI->getPointerOperand(), visited, depth + 1);
+    }
+
+    if (const auto *PN = llvm::dyn_cast<llvm::PHINode>(V)) {
+        for (unsigned i = 0; i < PN->getNumIncomingValues(); ++i) {
+            auto name = findSourceVariableName(PN->getIncomingValue(i), visited, depth + 1);
+            if (name)
+                return name;
+        }
+    }
+
+    if (const auto *SI = llvm::dyn_cast<llvm::SelectInst>(V)) {
+        auto trueName = findSourceVariableName(SI->getTrueValue(), visited, depth + 1);
+        if (trueName)
+            return trueName;
+        return findSourceVariableName(SI->getFalseValue(), visited, depth + 1);
+    }
+
+    return std::nullopt;
+}
+
+UnsafeLocationRecord buildUnsafeLocationRecord(const llvm::Value *V) {
+    UnsafeLocationRecord record;
+
+    const llvm::Instruction *instruction = llvm::dyn_cast_or_null<llvm::Instruction>(V);
+    if (instruction) {
+        if (const llvm::Function *F = instruction->getFunction()) {
+            if (!F->getName().empty())
+                record.function = F->getName().str();
+        }
+
+        if (const llvm::DILocation *loc = instruction->getDebugLoc().get()) {
+            llvm::StringRef filename = loc->getFilename();
+            if (!filename.empty())
+                record.file = filename.str();
+
+            if (loc->getLine() != 0)
+                record.line = loc->getLine();
+
+            if (loc->getColumn() != 0)
+                record.column = loc->getColumn();
+
+            if (llvm::DISubprogram *SP = llvm::getDISubprogram(loc->getScope())) {
+                if (!SP->getName().empty())
+                    record.function = SP->getName().str();
+            }
+        }
+    } else if (const auto *arg = llvm::dyn_cast_or_null<llvm::Argument>(V)) {
+        if (const llvm::Function *F = arg->getParent()) {
+            if (!F->getName().empty())
+                record.function = F->getName().str();
+        }
+    }
+
+    std::set<const llvm::Value *> visited;
+    record.variable = findSourceVariableName(V, visited, 0);
+
+    return record;
+}
+
+void writeOptionalString(std::ofstream &out, const char *key,
+                         const std::optional<std::string> &value) {
+    out << "    " << key << ": ";
+    if (value)
+        out << quoteYamlString(*value) << "\n";
+    else
+        out << "null\n";
+}
+
+void writeOptionalUnsigned(std::ofstream &out, const char *key,
+                           const std::optional<unsigned> &value) {
+    out << "    " << key << ": ";
+    if (value)
+        out << *value << "\n";
+    else
+        out << "null\n";
+}
+
+} // namespace
+
+void clearUnsafeLocations() {
+    UnsafeLocationValues.clear();
+}
+
+void recordUnsafeLocation(const llvm::Value *V) {
+    if (V)
+        UnsafeLocationValues.insert(V);
+}
+
+bool writeUnsafeLocationsYaml(const std::string &filename) {
+    std::ofstream out(filename, std::ios::out | std::ios::trunc);
+    if (!out.is_open())
+        return false;
+
+    if (UnsafeLocationValues.empty()) {
+        out << "unsafe_locations: []\n";
+        return static_cast<bool>(out);
+    }
+
+    std::vector<UnsafeLocationRecord> records;
+    records.reserve(UnsafeLocationValues.size());
+    for (const llvm::Value *V : UnsafeLocationValues)
+        records.push_back(buildUnsafeLocationRecord(V));
+
+    std::sort(records.begin(), records.end(),
+              [](const UnsafeLocationRecord &lhs, const UnsafeLocationRecord &rhs) {
+                  return std::tie(lhs.file, lhs.function, lhs.line, lhs.column, lhs.variable) <
+                         std::tie(rhs.file, rhs.function, rhs.line, rhs.column, rhs.variable);
+              });
+
+    out << "unsafe_locations:\n";
+    for (const UnsafeLocationRecord &record : records) {
+        out << "  - file: ";
+        if (record.file)
+            out << quoteYamlString(*record.file) << "\n";
+        else
+            out << "null\n";
+
+        writeOptionalString(out, "function", record.function);
+        writeOptionalUnsigned(out, "line", record.line);
+        writeOptionalUnsigned(out, "column", record.column);
+        writeOptionalString(out, "variable", record.variable);
+    }
+
+    return static_cast<bool>(out);
+}
 
 int _safeptrscount, _seqptrscount, _dynptrscount, _hasmetadatatableentrycount;
 llvm::Type* sizetype;

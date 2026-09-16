@@ -40,6 +40,7 @@ extern llvm::cl::opt<bool> DiffOnly;
 extern llvm::cl::opt<bool> SFIOnly;
 extern llvm::cl::opt<bool> UseBaggy;
 extern llvm::cl::opt<bool> DebugTaint;
+extern llvm::cl::opt<std::string> YAMLAnalysisOutput;
 
 extern std::string MAGIC_ASM_BEGIN;
 extern std::string MAGIC_ASM_END;
@@ -73,6 +74,10 @@ extern std::string NORMAL_MAGIC_ASM_END;
 using namespace llvm;
 
 namespace UnifiedMemSafe {
+
+	void clearUnsafeLocations();
+	void recordUnsafeLocation(const llvm::Value *V);
+	bool writeUnsafeLocationsYaml(const std::string &filename);
 
 	typedef llvm::Value VariableMapKeyType;
 
@@ -139,7 +144,3 @@ namespace UnifiedMemSafe {
 	};
 
 }
-
-
-
-

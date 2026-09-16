@@ -385,6 +385,10 @@ void CompatibleType::safeTypeCastAnalysis(
 
     errs() << GREEN << "Unsafe Dyn Pointer After Compatible-Type Cast Analysis:\t"
            << DETAIL << heapDynPointerSet.size() << NORMAL << "\n\n\n";
+
+    for (const auto &pair : heapDynPointerSet) {
+        UnifiedMemSafe::recordUnsafeLocation(pair.first);
+    }
     
     /*
     for (const auto &pair : heapDynPointerSet) {
