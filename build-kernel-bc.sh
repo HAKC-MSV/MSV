@@ -20,11 +20,11 @@ set -euo pipefail
 # ---------- Configuration ----------
 
 # LLVM 14 toolchain
-LLVM14="/path/to/llvm-project-14.0.0.src/build/bin"
+LLVM14="${LLVM14:-llvm-project-14.0.0.src/build/bin}"
 
 # Optional config file.
 # Leave empty if .config is already prepared.
-CONFIG_FILE=""
+CONFIG_FILE="${CONFIG_FILE:-".config"}"
 
 # Disable HAKC because stock LLVM 14 does not understand --enable-hakc.
 DISABLE_HAKC=1
@@ -32,6 +32,8 @@ DISABLE_HAKC=1
 # Disable CONFIG_WERROR because Linux 6.14 contains warning options
 # that Clang 14 may not recognize.
 DISABLE_WERROR=1
+
+LINUX_SOURCE="${LINUX_SOURCE:-.}"
 
 
 # ---------- Target ----------
@@ -44,7 +46,7 @@ fi
 
 SRC="$1"
 
-if [[ ! -f "$SRC" ]]; then
+if [[ ! -f "${LINUX_SOURCE}/$SRC" ]]; then
     echo "Error: source file does not exist: $SRC"
     exit 1
 fi
@@ -83,25 +85,22 @@ echo "=== LLVM toolchain ==="
 
 # ---------- Prepare kernel configuration ----------
 
-if [[ -n "$CONFIG_FILE" ]]; then
-    echo "=== Installing kernel config ==="
-    cp "$CONFIG_FILE" .config
-fi
-
-if [[ ! -f .config ]]; then
-    echo "Error: .config does not exist."
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: $CONFIG_FILE does not exist."
     echo "Provide CONFIG_FILE or create .config first."
     exit 1
 fi
 
+cd "$(dirname "$(realpath $CONFIG_FILE)")"
+
 if [[ "$DISABLE_HAKC" -eq 1 ]]; then
     echo "=== Disabling HAKC ==="
-    ./scripts/config --disable HAKC
+    $LINUX_SOURCE/scripts/config --disable HAKC
 fi
 
 if [[ "$DISABLE_WERROR" -eq 1 ]]; then
     echo "=== Disabling CONFIG_WERROR ==="
-    ./scripts/config --disable WERROR
+    $LINUX_SOURCE/scripts/config --disable WERROR
 fi
 
 # Re-evaluate compiler-dependent Kconfig options using LLVM 14.
@@ -304,4 +303,3 @@ echo "Source : $SRC"
 echo "Bitcode: $BC"
 echo "LLVM IR: $LL"
 echo "============================================================"
-
